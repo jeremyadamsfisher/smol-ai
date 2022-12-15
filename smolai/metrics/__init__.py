@@ -19,7 +19,7 @@ class Metric(metaclass=ABCMeta):
             cls.metric_name = cls.__name__.lower()
 
     def get_metric_name(self):
-        return self.__cls__.metric_name
+        return self.__class__.metric_name
 
     def __init__(self):
         self.batchwise_metrics: List[BatchMetricType] = []

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import Callable, List, Optional, Sequence, Type
 
 import torch
@@ -8,7 +7,7 @@ from torch.nn import Module
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
-from smolai.callbacks import Callback
+from smolai.callbacks import Callback, CallbackManager
 from smolai.metrics import Metric
 from smolai.utils import DotDict, to_device
 
@@ -55,19 +54,15 @@ def fit(
         epochwise_metrics=[],
     )
 
-    @contextmanager
-    def callback(lifecycle, **kwargs):
-        for cb in callbacks:
-            if hasattr(cb, lifecycle):
-                yield from getattr(cb, lifecycle)(context, **kwargs)
+    callback = CallbackManager(context, callbacks)
 
     for context.epoch in range(n_epochs):
-        with callback("epoch"):
-            with callback("train"):
+        with callback.epoch():
+            with callback.train():
                 metrics_trn = one_epoch(
                     context, metric_factories, train_dl, training=True
                 )
-            with callback("test"), torch.no_grad():
+            with callback.test(), torch.no_grad():
                 metrics_tst = one_epoch(
                     context, metric_factories, test_dl, training=False
                 )
@@ -100,9 +95,9 @@ def one_epoch(
         X, y = batch
         X, y = map(to_device, [X, y])
         y_pred = context.model(X)
-        loss = context.criterion(y, y_pred)
+        loss = context.criterion(y_pred, y)
         if training:
-            loss.backwards()
+            loss.backward()
             context.opt.step()
             context.opt.zero_grad()
         with torch.no_grad():

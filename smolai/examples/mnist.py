@@ -1,5 +1,5 @@
 import torch
-from torch.nn import Linear, Module, ReLU, Sequential
+from torch.nn import CrossEntropyLoss, Linear, Module, ReLU, Sequential
 from torch.utils.data import DataLoader
 from torchvision.datasets import MNIST
 from torchvision.transforms import ToTensor
@@ -31,7 +31,7 @@ def main():
 
     fit(
         model=model,
-        criterion=torch.nn.CrossEntropyLoss(),
+        criterion=CrossEntropyLoss(),
         train_dl=train_dl,
         test_dl=test_dl,
         opt_func=torch.optim.AdamW,

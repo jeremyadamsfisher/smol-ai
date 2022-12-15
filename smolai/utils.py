@@ -8,7 +8,7 @@ T = TypeVar("T")
 
 
 def to_device(t: T) -> T:
-    return t.to_device(DEVICE)
+    return t.to(DEVICE)
 
 
 class DotDict:

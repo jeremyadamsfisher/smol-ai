@@ -14,7 +14,7 @@ class AccuracyBatch(BaseModel):
     n_correct: int
 
 
-class Accuracy(Metric):
+class Accuracy(Metric, metric_name="accuracy_score"):
     def compute_batchwise(self, y: torch.tensor, y_pred: torch.tensor) -> AccuracyBatch:
         n = y.shape[0]
         n_correct = (y_pred.argmax(dim=1) == y).float().mean()
