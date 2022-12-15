@@ -26,7 +26,8 @@ def fit(
     """Fit a model.
 
     Args:
-        learner (Learner): model and training state.
+        model (Module): pytorch model.
+        criterion (Callable): loss function.
         train_dl (DataLoader): training data loader.
         test_dl (DataLoader): evaluation data loader.
         opt_func (Callable): optimizer function.
@@ -42,7 +43,7 @@ def fit(
     model = to_device(model)
     opt = opt_func(model.parameters(), lr=lr)
 
-    context = DotDict(
+    ctx = DotDict(
         model=model,
         criterion=criterion,
         train_dl=train_dl,
@@ -54,21 +55,17 @@ def fit(
         epochwise_metrics=[],
     )
 
-    callback = CallbackManager(context, callbacks)
+    callback = CallbackManager(ctx, callbacks)
 
-    for context.epoch in range(n_epochs):
+    for ctx.epoch in range(n_epochs):
         with callback.epoch():
             with callback.train():
-                metrics_trn = one_epoch(
-                    context, metric_factories, train_dl, training=True
-                )
+                metrics_trn = one_epoch(ctx, metric_factories, train_dl, training=True)
             with callback.test(), torch.no_grad():
-                metrics_tst = one_epoch(
-                    context, metric_factories, test_dl, training=False
-                )
-            context.epochwise_metrics.append((metrics_trn, metrics_tst))
+                metrics_tst = one_epoch(ctx, metric_factories, test_dl, training=False)
+            ctx.epochwise_metrics.append((metrics_trn, metrics_tst))
 
-    return context
+    return ctx
 
 
 def one_epoch(
@@ -80,14 +77,13 @@ def one_epoch(
     """One epoch of training or evaluation.
 
     Args:
-        model (Module): model.
-        criterion (Callable): loss function.
+        context (DotDict): Training context.
         metric_factories (Sequence[Type[Metric]]): Metric factories.
-        dl (DataLoader): data loader.
-        training (bool): training or evaluation.
-        opt (Optional[Optimizer], optional): optimizer. Defaults to None.
+        dl (DataLoader): Data loader.
+        training (bool): Training or evaluation.
+
     Returns:
-        Tuple[Learner, Stats]: Trained learner and corresponding training statistics."""
+        List[Metric]: Training or evaluation metrics."""
 
     context.model.training = training
     metrics = [metric() for metric in metric_factories]

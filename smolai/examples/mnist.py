@@ -37,6 +37,7 @@ def main():
         opt_func=torch.optim.AdamW,
         metric_factories=[Accuracy],
         callbacks=[Report()],
+        n_epochs=5,
     )
 
 

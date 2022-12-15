@@ -15,4 +15,7 @@ class Report(Callback):
         except (IndexError, ValueError):  # no metrics
             logger.info("...done")
         else:
+            if len(trn) == 1 and len(tst) == 1:
+                (trn,) = trn
+                (tst,) = tst
             logger.info("...done: {}", pformat({"trn": trn, "tst": tst}))
