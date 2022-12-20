@@ -8,9 +8,6 @@ def run_only_for_relevant_split(f):
     def run_only_for_relevant_split_inner(self, context, *args, **kwargs):
         if context.model.training == self.training:
             return f(self, context, *args, **kwargs)
-        else:
-            # need to return generator-like to work with normal callback lifecycle
-            return [None]
 
     return run_only_for_relevant_split_inner
 
@@ -39,7 +36,11 @@ class Metric(Callback):
         raise NotImplementedError
 
     def __repr__(self) -> str:
-        summary = self.summarize()
+        try:
+            summary = self.summarize()
+        except Exception as e:
+            logger.warning(e)
+            summary = super().__repr__()
         if isinstance(summary, float):
             summary = f"{summary:.2f}"
         return f"{self.__class__.metric_name}: {summary}"

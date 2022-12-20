@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence, Type
 
+import matplotlib.pyplot as plt
 import torch
 from loguru import logger
 from torch.nn import Module
@@ -49,13 +50,11 @@ class Trainer:
         model (Module): pytorch model.
         criterion (Callable): loss function.
         opt_func (Callable): optimizer function.
-        lr (float, optional): Learning rate. Defaults to 1e-3.
         callbacks (Sequence[Callback], optional): Callbacks and callback factories."""
 
     model: Module
     criterion: Callable
     opt_func: Callable[..., Optimizer]
-    lr: float = 1e-3
     callbacks: Optional[Sequence[Callback]] = None
 
     def __post_init__(self):
@@ -63,8 +62,6 @@ class Trainer:
             self.callbacks = []
         self.callbacks = expand_callback_factories(self.callbacks)
         self.model = to_device(self.model)
-        self.opt = self.opt_func(self.model.parameters(), lr=self.lr)
-        self.batch = None
         self.callback_manager = CallbackManager(self.callbacks, context=self)
 
     @logger.catch
@@ -73,19 +70,23 @@ class Trainer:
         train_dl: DataLoader,
         test_dl: Optional[DataLoader] = None,
         n_epochs: int = 1,
+        lr: float = 1e-3,
     ):
         """Fit a model.
 
         Args:
             train_dl (DataLoader): training data loader.
             test_dl (DataLoader, optional): evaluation data loader. If None, skip evaluation.
-            n_epochs (int, optional): Number of epochs. Defaults to 1."""
+            n_epochs (int, optional): Number of epochs. Defaults to 1.
+            lr (float, optional): Learning rate. Defaults to 1e-3."""
 
         self.n_epochs = n_epochs
         self.train_dl = train_dl
         self.test_dl = test_dl
+        self.lr = lr
+        self.opt = self.opt_func(self.model.parameters(), lr=self.lr)
 
-        with self.callback_manager.fit():
+        with self.callback_manager.fit(), plt.style.context("bmh"):
             for self.epoch in range(self.n_epochs):
                 with self.callback_manager.epoch():
                     with self.callback_manager.train():

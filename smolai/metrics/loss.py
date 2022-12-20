@@ -6,23 +6,29 @@ from smolai.metrics import Metric
 
 
 class Loss(Metric):
-    """Loss metric, used with ReportAverageLossWithPlot to
-    show loss in real-time"""
+    """Loss metric, used with RealTimeLoss to show loss in real-time.
+    Assumes that the loss is a mean reduction, which means that it
+    needs to be multiplied by the batch size before being summed and
+    divided by the total number of samples."""
 
     @no_context
     def setup(self):
+        self.ns = []
         self.losses = []
 
-    # @after
+    @after
     @metrics.run_only_for_relevant_split
     def batch(self, context):
-        yield
-        n = context.y.shape[0]
-        self.losses.append((n, context.loss.item()))
+        self.ns.append(context.y.shape[0])
+        self.losses.append(context.loss.item())
 
     def summarize(self):
+        loss_total = 0
+        n_total = 0
+        for n, loss in zip(self.ns, self.losses):
+            loss_total += n * loss
+            n_total += n
         try:
-            ns, losses = zip(*self.losses)
-        except ValueError:
+            return loss_total / n_total
+        except ZeroDivisionError:
             return np.nan
-        return sum(losses) / len(ns)

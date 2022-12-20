@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Callable, Generator, List
+from typing import TYPE_CHECKING, Callable, List, Type
 
 from loguru import logger
 
@@ -11,6 +11,10 @@ from smolai.utils import advance
 
 if TYPE_CHECKING:
     from smolai.trainer import Trainer
+
+
+class CallbackSetupError(Exception):
+    pass
 
 
 class CancelBatch(Exception):
@@ -31,6 +35,15 @@ class CancelTest(Exception):
 
 class CancelFit(Exception):
     pass
+
+
+lifecycle2cancel_exception = {
+    "batch": CancelBatch,
+    "epoch": CancelEpoch,
+    "train": CancelTrain,
+    "test": CancelTest,
+    "fit": CancelFit,
+}
 
 
 def no_context(f):
@@ -72,19 +85,42 @@ class Callback:
         context (Trainer): Trainer instance managing the callback
     """
 
-    def __init_subclass__(cls, priority=0, requires_grad=False, **kwargs):
+    def __init_subclass__(cls, priority=1, requires_grad=False, **kwargs):
         super().__init_subclass__(**kwargs)
         cls.priority = priority
         cls.requires_grad = requires_grad
 
     @classmethod
     def as_factory(cls):
-        """If a callback is supplied as a class, each class constructor in
-        this list is instatiated and added to the callback list."""
-        return [cls]
+        """If a callback is supplied as a class, this method is called and the
+        resulting list is added to the full callback list."""
+        return [cls()]
 
     def setup(self, context):
         pass
+
+    def require_other_callback(self, context, callback_type: Type[Callback]):
+        """Check if given callback types is present in the context.
+
+        Returns:
+            List[Callback]: List of callbacks of given type. If all callbacks
+                are metrics, they are sorted by training then testing."""
+        from smolai.metrics import Metric
+
+        cbs = [cb for cb in context.callbacks if isinstance(cb, callback_type)]
+        if not cbs:
+            raise RuntimeError(
+                f"Callback {callback_type.__name__} is required for {self}"
+            )
+        for cb in cbs:
+            if cb.__class__.priority > self.__class__.priority:
+                raise RuntimeError(
+                    f"Callback {cb.__class__.__name__} has lower priority than {self.__class__.__name__} "
+                    f"which requested it. Please increase the priority of {cb.__class__.__name__}."
+                )
+        if all(isinstance(cb, Metric) for cb in cbs):
+            return sorted(cbs, key=lambda cb: cb.training, reverse=True)
+        return cbs
 
     LIFECYCLE_METHODS = {"batch", "epoch", "train", "test", "fit"}
 
@@ -126,7 +162,12 @@ class CallbackManager:
             except NotImplementedError:
                 continue
             else:
-                lifecycle_cb_iter = iter(lifecycle_cb_gen)
+                try:
+                    lifecycle_cb_iter = iter(lifecycle_cb_gen)
+                except TypeError:
+                    raise CallbackSetupError(
+                        f"{cb.__class__.__name__}.{lifecycle}() must be a generator."
+                    )
                 lifecycle_cbs.append((cb.requires_grad, lifecycle_cb_iter))
 
         return lambda: [
@@ -145,11 +186,15 @@ class CallbackManager:
             Cancel{Batch|Epoch|Train|Test|Fit}: Immediately terminate lifecycle event."""
         advance_cbs = self.setup_for_lifecycle(lifecycle, kwargs)
         try:
+            if lifecycle != "batch":
+                logger.debug("Starting {}.", lifecycle)
             advance_cbs()
             yield
+            if lifecycle != "batch":
+                logger.debug("Finishing {}.", lifecycle)
             advance_cbs()
-        except (CancelBatch, CancelEpoch, CancelTrain, CancelTest, CancelFit) as e:
-            logger.debug("Caught {} in {} hook.", e.__class__.__name__, lifecycle)
+        except lifecycle2cancel_exception[lifecycle] as e:
+            logger.debug("Caught {}.", e.__class__.__name__)
 
     def __getattribute__(self, attribute):
         if attribute in Callback.LIFECYCLE_METHODS:
