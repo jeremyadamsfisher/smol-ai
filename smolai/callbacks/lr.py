@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from IPython.display import display
 
-from smolai.callbacks import Callback, CancelFit, CancelTest, after, before
+from smolai.callbacks import (Callback, CancelFit, CancelTest, after, before,
+                              no_context)
 from smolai.metrics import Loss
 
 
@@ -53,7 +54,8 @@ class LrFinder(Callback):
         plt.close()
 
     @before
-    def test(self, *_):
+    @no_context
+    def test(self):
         # We are only interested in the effect of the learning rate
         # on the loss, so the performance of the model itself on
         # a hold-out set is irrelevant

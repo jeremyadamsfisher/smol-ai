@@ -6,5 +6,8 @@ help:
 install: ## Install dependencies
 	@python setup.py install
 
+install_silent: ## Install dependencies (silent)
+	@python setup.py install > /dev/null 2>&1
+
 mnist: ## Run MNIST example
-	@python smolai/examples/mnist.py
+	@python examples/mnist.py

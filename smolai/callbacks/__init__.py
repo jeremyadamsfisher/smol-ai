@@ -3,38 +3,43 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, Callable, Generator, List
 
 from loguru import logger
+
+from smolai.utils import advance
 
 if TYPE_CHECKING:
     from smolai.trainer import Trainer
 
 
-class CancellationException(Exception):
-    def __init__(self, skip_after_event_functionality=False):
-        super().__init__()
-        self.skip_after_event_functionality = skip_after_event_functionality
-
-
-class CancelBatch(CancellationException):
+class CancelBatch(Exception):
     pass
 
 
-class CancelEpoch(CancellationException):
+class CancelEpoch(Exception):
     pass
 
 
-class CancelTrain(CancellationException):
+class CancelTrain(Exception):
     pass
 
 
-class CancelTest(CancellationException):
+class CancelTest(Exception):
     pass
 
 
-class CancelFit(CancellationException):
+class CancelFit(Exception):
     pass
+
+
+def no_context(f):
+    """Run lifecycle hook without accessing training state."""
+
+    def inner_no_context(self, _context, *args, **kwargs):
+        return f(self, *args, **kwargs)
+
+    return inner_no_context
 
 
 def after(f):
@@ -67,12 +72,21 @@ class Callback:
         context (Trainer): Trainer instance managing the callback
     """
 
-    def __init_subclass__(cls, priority=0, **kwargs):
+    def __init_subclass__(cls, priority=0, requires_grad=False, **kwargs):
         super().__init_subclass__(**kwargs)
         cls.priority = priority
+        cls.requires_grad = requires_grad
+
+    @classmethod
+    def as_factory(cls):
+        """If a callback is supplied as a class, each class constructor in
+        this list is instatiated and added to the callback list."""
+        return [cls]
 
     def setup(self, context):
         pass
+
+    LIFECYCLE_METHODS = {"batch", "epoch", "train", "test", "fit"}
 
     def batch(self, context):
         raise NotImplementedError
@@ -89,8 +103,6 @@ class Callback:
     def fit(self, context):
         raise NotImplementedError
 
-    NONLIFECYCLE_METHODS = {"setup"}
-
 
 @dataclass
 class CallbackManager:
@@ -103,8 +115,9 @@ class CallbackManager:
         for cb in self.cbs:
             cb.setup(self.context)
 
-    def setup_for_lifecycle(self, lifecycle, lifecycle_kwargs):
-        """Instatiate all relevant lifecycle hooks"""
+    def setup_for_lifecycle(self, lifecycle, lifecycle_kwargs) -> Callable:
+        """Instatiate all relevant lifecycle hooks and create function
+        to call `next` upon them."""
         lifecycle_cbs = []
         for cb in sorted(self.cbs, key=lambda cb_: cb_.__class__.priority):
             lifecycle_cb_f = getattr(cb, lifecycle)
@@ -114,8 +127,11 @@ class CallbackManager:
                 continue
             else:
                 lifecycle_cb_iter = iter(lifecycle_cb_gen)
-                lifecycle_cbs.append(lifecycle_cb_iter)
-        return lifecycle_cbs
+                lifecycle_cbs.append((cb.requires_grad, lifecycle_cb_iter))
+
+        return lambda: [
+            advance(cb_gen, requires_grad) for requires_grad, cb_gen in lifecycle_cbs
+        ]
 
     @contextmanager
     def run_lifecycle(self, lifecycle, **kwargs):
@@ -126,27 +142,16 @@ class CallbackManager:
             **kwargs: Keyword arguments to pass to lifecycle method.
 
         Raises:
-            Cancel{Batch|Epoch|Train|Test|Fit}: SKip lifecycle."""
-        cbs = self.setup_for_lifecycle(lifecycle, kwargs)
+            Cancel{Batch|Epoch|Train|Test|Fit}: Immediately terminate lifecycle event."""
+        advance_cbs = self.setup_for_lifecycle(lifecycle, kwargs)
         try:
-            for cb in cbs:
-                next(cb)
+            advance_cbs()
             yield
+            advance_cbs()
         except (CancelBatch, CancelEpoch, CancelTrain, CancelTest, CancelFit) as e:
             logger.debug("Caught {} in {} hook.", e.__class__.__name__, lifecycle)
-            if e.skip_after_event_functionality:
-                logger.warning("Skipping the teardown stage of {}.", lifecycle)
-                return
-        for cb in cbs:
-            try:
-                next(cb)
-            except StopIteration:
-                pass
 
     def __getattribute__(self, attribute):
-        if (
-            attribute in Callback.__dict__
-            and attribute not in Callback.NONLIFECYCLE_METHODS
-        ):
+        if attribute in Callback.LIFECYCLE_METHODS:
             return partial(self.run_lifecycle, attribute)
         return super().__getattribute__(attribute)
