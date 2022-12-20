@@ -1,9 +1,21 @@
-from abc import ABCMeta, abstractmethod
-
 import torch
+from loguru import logger
+
+from smolai.callbacks import Callback
 
 
-class Metric(metaclass=ABCMeta):
+def run_only_for_relevant_split(f):
+    def run_only_for_relevant_split_inner(self, context, *args, **kwargs):
+        if context.model.training == self.training:
+            return f(self, context, *args, **kwargs)
+        else:
+            # need to return generator-like to work with normal callback lifecycle
+            return [None]
+
+    return run_only_for_relevant_split_inner
+
+
+class Metric(Callback):
     """Abstract base class for metrics"""
 
     def __init_subclass__(cls, metric_name=None, **kwargs):
@@ -13,13 +25,18 @@ class Metric(metaclass=ABCMeta):
         else:
             cls.metric_name = cls.__name__.lower()
 
-    @abstractmethod
-    def add_batch(self, y: torch.tensor, y_pred: torch.tensor, loss: torch.tensor):
-        """Add a batch of predictions to the metric."""
+    def __init__(self, training: bool) -> None:
+        self.training = training
 
-    @abstractmethod
+    @classmethod
+    def as_factory(cls):
+        trn = cls(training=True)
+        tst = cls(training=False)
+        return [trn, tst]
+
     def summarize(self) -> torch.tensor:
         """Summarize the epoch."""
+        raise NotImplementedError
 
     def __repr__(self) -> str:
         summary = self.summarize()

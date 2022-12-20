@@ -30,6 +30,17 @@ class CancelTest(Exception):
     pass
 
 
+def expand_callback_factories(callbacks_and_callback_factories):
+    """Turn callback factories into callbacks."""
+    cbs = []
+    for cb in callbacks_and_callback_factories:
+        if isinstance(cb, type):  # if the callback is a class
+            cbs.extend(cb.as_factory())
+        else:  # if the callback is an object instance
+            cbs.append(cb)
+    return cbs
+
+
 @dataclass
 class Trainer:
     """Train a model
@@ -39,25 +50,21 @@ class Trainer:
         criterion (Callable): loss function.
         opt_func (Callable): optimizer function.
         lr (float, optional): Learning rate. Defaults to 1e-3.
-        metric_factories (Sequence[Type[Metric]]], optional): Metric factories. Defaults to None.
-        callbacks (Sequence[Callback], optional): Callbacks. Defaults to None."""
+        callbacks (Sequence[Callback], optional): Callbacks and callback factories."""
 
     model: Module
     criterion: Callable
     opt_func: Callable[..., Optimizer]
     lr: float = 1e-3
-    metric_factories: Optional[Sequence[Type[Metric]]] = None
     callbacks: Optional[Sequence[Callback]] = None
 
     def __post_init__(self):
-        if self.metric_factories is None:
-            self.metric_factories = []
         if self.callbacks is None:
             self.callbacks = []
+        self.callbacks = expand_callback_factories(self.callbacks)
         self.model = to_device(self.model)
         self.opt = self.opt_func(self.model.parameters(), lr=self.lr)
         self.batch = None
-        self.epochwise_metrics = []
         self.callback_manager = CallbackManager(self.callbacks, context=self)
 
     @logger.catch
@@ -81,30 +88,23 @@ class Trainer:
         with self.callback_manager.fit():
             for self.epoch in range(self.n_epochs):
                 with self.callback_manager.epoch():
-                    metrics_trn, metrics_tst = None, None
                     with self.callback_manager.train():
-                        metrics_trn = self.one_epoch(self.train_dl, training=True)
+                        self.one_epoch(self.train_dl, training=True)
                     if test_dl:
                         with self.callback_manager.test(), torch.no_grad():
-                            metrics_tst = self.one_epoch(self.test_dl, training=False)
-                    self.epochwise_metrics.append((metrics_trn, metrics_tst))
+                            self.one_epoch(self.test_dl, training=False)
 
         return self
 
     def one_epoch(self, dl: DataLoader, training: bool) -> List[Metric]:
         self.model.training = training
-        self.batch_metrics = [metric() for metric in self.metric_factories]
         for self.batch_idx, self.batch in enumerate(dl):
             with self.callback_manager.batch():
-                X, y = self.batch
-                X, y = map(to_device, [X, y])
-                y_pred = self.model(X)
-                loss = self.criterion(y_pred, y)
+                self.X, self.y = self.batch
+                self.X, self.y = map(to_device, [self.X, self.y])
+                self.y_pred = self.model(self.X)
+                self.loss = self.criterion(self.y_pred, self.y)
                 if training:
-                    loss.backward()
+                    self.loss.backward()
                     self.opt.step()
                     self.opt.zero_grad()
-                with torch.no_grad():
-                    for metric in self.batch_metrics:
-                        metric.add_batch(y=y, y_pred=y_pred, loss=loss)
-        return self.batch_metrics
