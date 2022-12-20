@@ -5,8 +5,8 @@ from torchvision.datasets import MNIST
 from torchvision.transforms import ToTensor
 
 from smolai import fit
-from smolai.callbacks.report import Report
-from smolai.metrics import Accuracy
+from smolai.callbacks.report import ReportMetricsWithLogger
+from smolai.metrics import Accuracy, Loss
 
 
 class MnistModel(Module):
@@ -29,15 +29,17 @@ def main():
     test_ds = MNIST(root="data", train=False, download=True, transform=ToTensor())
     test_dl = DataLoader(test_ds, batch_size=256, shuffle=False)
 
+    cbs = [ReportMetricsWithLogger()]
+
     fit(
         model=model,
         criterion=CrossEntropyLoss(),
         train_dl=train_dl,
         test_dl=test_dl,
         opt_func=torch.optim.AdamW,
-        metric_factories=[Accuracy],
-        callbacks=[Report()],
-        n_epochs=5,
+        metric_factories=[Accuracy, Loss],
+        callbacks=cbs,
+        n_epochs=2,
     )
 
 

@@ -1,4 +1,4 @@
-from smolai.fit import fit
 from smolai.metrics.accuracy import Accuracy
+from smolai.trainer import Trainer
 
-__all__ = ["fit", "Accuracy"]
+__all__ = ["Trainer", "Accuracy"]
