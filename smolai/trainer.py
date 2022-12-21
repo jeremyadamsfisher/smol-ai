@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Sequence, Type
+from typing import Callable, List, Optional, Sequence
 
 import matplotlib.pyplot as plt
 import torch
@@ -81,7 +81,8 @@ class Trainer:
 
         return self
 
-    def one_epoch(self, dl: DataLoader, training: bool) -> List[Metric]:
+    def one_epoch(self, dl: DataLoader, training: bool):
+        """Run one epoch."""
         self.model.training = training
         for self.batch_idx, self.batch in enumerate(dl):
             with self.callback_manager.batch():
@@ -92,4 +93,18 @@ class Trainer:
                 if training:
                     self.loss.backward()
                     self.opt.step()
-                    self.opt.zero_grad()
+                    self.zero_grad()
+
+    def zero_grad(self):
+        self.opt.zero_grad()
+
+
+@dataclass
+class MomentumTrainer(Trainer):
+
+    mom: float = 0.85
+
+    def zero_grad(self):
+        with torch.no_grad():
+            for p in self.model.parameters():
+                p.grad *= self.mom
