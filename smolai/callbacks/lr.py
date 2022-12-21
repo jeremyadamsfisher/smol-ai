@@ -5,8 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from IPython.display import display
 
-from smolai.callbacks import (Callback, CancelFit, CancelTest, after, before,
-                              no_context)
+from smolai.callbacks import Callback, CancelFit, CancelTest, after, before, no_context
 
 
 @dataclass

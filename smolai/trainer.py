@@ -15,22 +15,6 @@ from smolai.metrics import Metric
 from smolai.utils import to_device
 
 
-class CancelBatch(Exception):
-    pass
-
-
-class CancelEpoch(Exception):
-    pass
-
-
-class CancelTrain(Exception):
-    pass
-
-
-class CancelTest(Exception):
-    pass
-
-
 def expand_callback_factories(callbacks_and_callback_factories):
     """Turn callback factories into callbacks."""
     cbs = []

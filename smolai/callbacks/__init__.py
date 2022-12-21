@@ -37,15 +37,6 @@ class CancelFit(Exception):
     pass
 
 
-lifecycle2cancel_exception = {
-    "batch": CancelBatch,
-    "epoch": CancelEpoch,
-    "train": CancelTrain,
-    "test": CancelTest,
-    "fit": CancelFit,
-}
-
-
 def no_context(f):
     """Run lifecycle hook without accessing training state."""
 
@@ -122,7 +113,15 @@ class Callback:
             return sorted(cbs, key=lambda cb: cb.training, reverse=True)
         return cbs
 
-    LIFECYCLE_METHODS = {"batch", "epoch", "train", "test", "fit"}
+    LIFECYCLE_EXCEPTIONS = {
+        "batch": CancelBatch,
+        "epoch": CancelEpoch,
+        "train": CancelTrain,
+        "test": CancelTest,
+        "fit": CancelFit,
+    }
+
+    LIFECYCLE_METHODS = LIFECYCLE_EXCEPTIONS.keys()
 
     def batch(self, context):
         raise NotImplementedError
@@ -161,14 +160,13 @@ class CallbackManager:
                 lifecycle_cb_gen = lifecycle_cb_f(self.context, **lifecycle_kwargs)
             except NotImplementedError:
                 continue
-            else:
-                try:
-                    lifecycle_cb_iter = iter(lifecycle_cb_gen)
-                except TypeError:
-                    raise CallbackSetupError(
-                        f"{cb.__class__.__name__}.{lifecycle}() must be a generator."
-                    )
-                lifecycle_cbs.append((cb.requires_grad, lifecycle_cb_iter))
+            try:
+                lifecycle_cb_iter = iter(lifecycle_cb_gen)
+            except TypeError:
+                raise CallbackSetupError(
+                    f"{cb.__class__.__name__}.{lifecycle}() must be a generator."
+                )
+            lifecycle_cbs.append((cb.requires_grad, lifecycle_cb_iter))
 
         return lambda: [
             advance(cb_gen, requires_grad) for requires_grad, cb_gen in lifecycle_cbs
@@ -186,14 +184,10 @@ class CallbackManager:
             Cancel{Batch|Epoch|Train|Test|Fit}: Immediately terminate lifecycle event."""
         advance_cbs = self.setup_for_lifecycle(lifecycle, kwargs)
         try:
-            if lifecycle != "batch":
-                logger.debug("Starting {}.", lifecycle)
             advance_cbs()
             yield
-            if lifecycle != "batch":
-                logger.debug("Finishing {}.", lifecycle)
             advance_cbs()
-        except lifecycle2cancel_exception[lifecycle] as e:
+        except Callback.LIFECYCLE_EXCEPTIONS[lifecycle] as e:
             logger.debug("Caught {}.", e.__class__.__name__)
 
     def __getattribute__(self, attribute):
